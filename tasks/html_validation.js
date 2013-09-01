@@ -54,6 +54,7 @@ module.exports = function(grunt) {
 		fileCount = 0,
 		validsettings = "",
 		reportArry =[],
+		retryFiles = {},
 		retryCount = 0,
 		failLogger = grunt.log.error,
 		reportFilename = "";
@@ -133,12 +134,19 @@ module.exports = function(grunt) {
 				callback: function(res) {
 
 					if (!res.messages) {
-						grunt.warn('failed fetching file, should implement retry');
+
+						retryFiles[file] = (retryFiles[file] || 0) + 1;
+						if(retryFiles[file] === options.maxTry){
+							grunt.warn('Tried to validate ' +  realName + ' ' + options.maxTry + ' times but failed. Aborting.');
+						}
+						//retry
+						grunt.verbose.writeln('Retrying ' + realName);
+						validate(file, realName, callback);
 						return;
 					}
 
 					len = res.messages.length;
-					var validatedMsg  = msg.ok + file + '...';
+					var validatedMsg  = msg.ok + file + ' ';
 
 
 					if (len) {
@@ -278,10 +286,5 @@ module.exports = function(grunt) {
 
 			done();
 		}
-
-
-
-
 	});
-
 };
