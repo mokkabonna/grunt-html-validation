@@ -36,14 +36,16 @@ module.exports = function(grunt) {
 		counter = 0,
 		msg = {
 			error: "Something went wrong",
-			ok: "Validation successful..",
-			start: "Validation started for.. ".info,
+			ok: "Validated ",
+			start: "Validating ",
 			networkError: 'Network error re-validating..'.error,
 			validFile: "Validated skipping..",
 			nofile: ":- No file is specified in the path!",
 			nextfile: "Skipping to next file..".verbose,
 			eof: "End of File..".verbose,
 			fileNotFound: "File not found..".error,
+			downloading : "Downloading ",
+			downloaded : "Downloaded ",
 			remotePathError: "Remote path ".error + "(options->remotePath) ".grey + "is mandatory when remote files ".error+"(options-> remoteFiles) ".grey+"are specified!".error
 		},
 		len,
@@ -53,6 +55,7 @@ module.exports = function(grunt) {
 		validsettings = "",
 		reportArry =[],
 		retryCount = 0,
+		failLogger = grunt.log.error,
 		reportFilename = "";
 
 	grunt.registerMultiTask('validation', 'HTML W3C validation.', function() {
@@ -72,7 +75,7 @@ module.exports = function(grunt) {
 			readSettings = {},
 			remoteArry = [];
 
-		
+
 		var makeFileList  = function (files) {
 			return files.map(function(file){
 				return options.remotePath + file;
@@ -84,7 +87,8 @@ module.exports = function(grunt) {
 			grunt.file.write(options.path, '{}');
 		}
 
-		if (!flen) {
+		//throw no file warning if no regular files and no remote files
+		if (!flen && !options.remoteFiles) {
 			var nomsg = this.data.src;
 			console.log(nomsg + msg.nofile.error);
 		}
@@ -96,117 +100,86 @@ module.exports = function(grunt) {
 			reportArry.push(report);
 		};
 
-		var validate = function(files) {
+		var validate = function(file, realName, callback) {
 
-			if (files.length) {
-
-				if (grunt.file.exists(options.path)) {
-					readSettings = grunt.file.readJSON(options.path);
-				}
-				var currFileStat = readSettings[files[counter]] || false;
-
-				if (currFileStat) {
-					console.log(msg.validFile.green + files[counter]);
-					reportFilename = options.remoteFiles ? dummyFile[counter] : files[counter];
-					addToReport(reportFilename, false);
-					counter++;
-					validate(files);
-					return;
-				}
-
-				if (files[counter] !== undefined) {
-
-					var filename = options.remoteFiles ? dummyFile[counter] : files[counter];
-
-					console.log(msg.start + filename);
-				}
-
-				var results = w3cjs.validate({
-					file: files[counter], // file can either be a local file or a remote file
-					// file: 'http://localhost:9001/010_gul006_business_landing_o2_v11.html',
-					output: 'json', // Defaults to 'json', other option includes html
-					callback: function(res) {
-
-						flen = files.length;
-
-						if (!res.messages) {
-							++retryCount;
-							var netErrorMsg = msg.networkError +  " " + retryCount.toString().error +" ";
-							if(retryCount === options.maxTry){
-								counter++;
-								if(counter !==flen){
-									netErrorMsg += msg.nextfile
-								}else{
-									netErrorMsg += msg.eof
-								}
-								retryCount = 0;
-							}
-						
-							console.log(netErrorMsg);
-							validate(files);
-							return;
-						}
-
-						len = res.messages.length;
-
-						if (len) {
-
-							for (var prop in res.messages) {
-								console.log(prop + "=> ".warn + JSON.stringify(res.messages[prop].message).help +
-									" Line no: " + JSON.stringify(res.messages[prop].lastLine).prompt
-								);
-							}
-
-							readSettings[files[counter]] = false;
-							console.log("No of errors: ".error + res.messages.length);
-
-							reportFilename = options.remoteFiles ? dummyFile[counter] : files[counter];
-							addToReport(reportFilename, res.messages);
-
-							if (options.stoponerror) {
-								done();
-								return;
-							}
-
-						} else {
-
-							readSettings[files[counter]] = true;
-							grunt.log.ok(msg.ok.green);
-
-							reportFilename = options.remoteFiles ? dummyFile[counter] : files[counter];
-							addToReport(reportFilename, false);
-
-						}
-
-						grunt.file.write(options.path, JSON.stringify(readSettings));
-						// depending on the output type, res will either be a json object or a html string
-						counter++;
-
-						if (counter === flen) {
-							grunt.file.write(options.reportpath, JSON.stringify(reportArry));
-							console.log("Validation report generated: ".green + options.reportpath);
-							done();
-						}
-
-						if (options.remoteFiles) {
-							if(counter === flen) return;
-
-							rval(dummyFile[counter], function(){
-								validate(files);
-							});
-
-						}else{
-							validate(files);
-						}	
-					}
-				});
+			//realName is optional and if omitted use file as real name and realName as callback
+			if (typeof callback === 'undefined' && typeof realName === 'function') {
+				callback = realName;
+				realName = file;
 			}
+
+
+			if (grunt.file.exists(options.path)) {
+				readSettings = grunt.file.readJSON(options.path);
+			}
+			var currFileStat = readSettings[file] || false;
+
+			if (currFileStat) {
+				console.log(msg.validFile.green + file);
+				addToReport(realName, false);
+				counter++;
+
+				return;
+			}
+
+			if (file !== undefined) {
+				grunt.verbose.writeln(msg.start + realName);
+			}
+
+			var results = w3cjs.validate({
+				file: file, // file can either be a local file or a remote file
+				// file: 'http://localhost:9001/010_gul006_business_landing_o2_v11.html',
+				output: 'json', // Defaults to 'json', other option includes html
+				callback: function(res) {
+
+					if (!res.messages) {
+						grunt.warn('failed fetching file, should implement retry');
+						return;
+					}
+
+					len = res.messages.length;
+					var validatedMsg  = msg.ok + file + '...';
+
+
+					if (len) {
+
+						var errors = [];
+						grunt.log.write(validatedMsg);
+						grunt.log.error();
+
+						res.messages.forEach(function(item, index, all) {
+							errors.push('Line ' + item.lastLine.toString().prompt + ': ' + item.message);
+						});
+
+						errors.push("No of errors: ".error + res.messages.length);
+						failLogger(errors.join(grunt.util.linefeed));
+						grunt.log.writeln();
+
+						readSettings[file] = false;
+						addToReport(realName, res.messages);
+						callback(false);
+
+					} else {
+						grunt.log.write(validatedMsg);
+						grunt.log.ok();
+
+						readSettings[file] = true;
+						addToReport(realName, false);
+						callback(true);
+					}
+
+				}
+			});
+
 		};
 
-		/*Remote validation 
+		/*Remote validation
 		*Note on Remote validation.
-		* W3Cjs supports remote file validation but due to some reasons it is not working as expected. Local file validation is working perfectly. To overcome this remote page is fetch using 'request' npm module and write page content in '_tempvlidation.html' file and validates as local file. 
+		* W3Cjs supports remote file validation but due to some reasons it is not working as expected. Local file validation is working perfectly. To overcome this remote page is fetch using 'request' npm module and write page content in '_tempvlidation.html' file and validates as local file.
 		*/
+		var totalFiles = files.length;
+		var failures = files.length;
+		var total = files.length;
 
 		if(!options.remotePath && options.remoteFiles){
 			console.log(msg.remotePathError)
@@ -221,31 +194,92 @@ module.exports = function(grunt) {
 
 			if(typeof options.remoteFiles === 'object' && options.remoteFiles.length && options.remoteFiles[0] !=='' ){
 				files = options.remoteFiles;
-				
+
 			}else{
 				files = grunt.file.readJSON(options.remoteFiles);
-			}	
+			}
 
 			files = makeFileList(files);
 
-			var dummyFile = files;
+			var remainingCalls = files.length;
+			var tempFiles = {};
+			//get all the remote files and on callbacks start the async validation
 
-			files = [];
+			files.forEach(function(file) {
+				grunt.verbose.writeln(msg.downloading + file);
+			});
 
-			for (var i = 0; i < dummyFile.length; i++) {
-				files.push('_tempvlidation.html');
-			};
-
-			rval(dummyFile[counter], function(){
-				validate(files);
+			rval(files, function(file, tempName) {
+				grunt.verbose.writeln(msg.downloaded + file);
+				remainingCalls--;
+				if(options.async) {
+					validate(tempName, file, function(success) {
+						if(success) failures--;
+						if(!remainingCalls) complete();
+					}); //reverse order of arguments, no mistake
+				}
+				else{
+					tempFiles[file] = tempName;
+					remainingCalls--;
+					if(!remainingCalls) validateAll(files, tempFiles);
+				}
 			});
 
 			return;
 		}
 
+
 		if(!options.remoteFiles){
-			validate(files);
+			validateAll(files);
 		}
+
+
+		//Validates async or sync based on async option
+		function validateAll(files, tempFiles){
+
+			function flush(files){
+				var filename = files.shift();
+				var tempOrReal = tempFiles ? tempFiles[filename] : filename;
+
+				//valdiate first in array, then wait for it do be done, and repeat
+				validate(tempOrReal, filename, function(success) {
+					if(success) failures--;
+					if(files.length) flush(files);
+					else complete();
+				});
+			}
+
+			if(options.async){
+				files.forEach(function(file) {
+					validate(file, function(success) {
+						if(success) failures--;
+						totalFiles--;
+						if(!totalFiles) complete();
+					});
+				});
+			}
+			else{
+				flush(files);
+			}
+		}
+
+		function complete() {
+
+			grunt.log.writeln((total - failures) + ' of '+ total +' files '+ 'passed' + ', ' + failures + ' failed.' )
+
+			if (options.reportpath){
+				grunt.file.write(options.reportpath, JSON.stringify(reportArry));
+				grunt.verbose.writeln("Validation report generated: ".green + options.reportpath);
+			}
+
+			if (options.path){
+				grunt.file.write(options.path, JSON.stringify(readSettings));
+			}
+
+			done();
+		}
+
+
 
 
 	});

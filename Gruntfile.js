@@ -36,6 +36,15 @@ module.exports = function(grunt) {
         options: {
             reset: grunt.option('reset') || false,
             stoponerror:false,
+            async: true,
+        },
+        local: {
+            src: ['test/html/*.html',
+                '!test/html/index.html',
+                '!test/html/404.html']
+        },
+        remote: {
+          options:{
             remotePath: "http://decodize.com/",
             // remoteFiles: ["html/slidemote-universal-remote-control-for-html5-presentations",
             //               "GAE/linktomob-share-your-links-quickly-and-easily-on-mobile-devices/",
@@ -44,11 +53,7 @@ module.exports = function(grunt) {
             //               "css/site-preloading-methods/",
             //               "html/sublime-text-2-bidirectional-language-support-plugin/"]
             remoteFiles: "validation-files.json"
-        },
-        files: {
-            src: ['test/html/*.html', 
-                '!test/html/index.html', 
-                '!test/html/404.html']
+          }
         }
     }
 
@@ -62,7 +67,7 @@ module.exports = function(grunt) {
   grunt.loadNpmTasks('grunt-contrib-clean');
   grunt.loadNpmTasks('grunt-contrib-nodeunit');
   // grunt.loadNpmTasks('grunt-html-validation');
-  
+
 
   // Whenever the "test" task is run, first clean the "tmp" dir, then run this
   // plugin's task(s), then test the result.
